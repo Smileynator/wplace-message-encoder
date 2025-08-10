@@ -2,146 +2,243 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>Base-31 Pixel Text Encoder/Decoder</title>
+<title>Base-31 Pixel Encoder/Decoder</title>
 <style>
-  body { font-family: sans-serif; padding: 10px; }
-  canvas { border: 1px solid black; image-rendering: pixelated; }
-  textarea, input { width: 100%; box-sizing: border-box; }
-  .tab { margin-bottom: 10px; }
-  button { margin-top: 5px; }
+  body { font-family: sans-serif; padding: 10px; display: flex; gap: 20px; }
+  canvas { border: 1px solid black; image-rendering: pixelated; cursor: crosshair; }
+  .panel { flex: 1; }
+  .color-palette { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
+  .color-swatch {
+    width: 20px; height: 20px; border: 1px solid #000; cursor: pointer;
+  }
+  .selected { border: 2px solid white; outline: 2px solid black; }
 </style>
 </head>
 <body>
 
-<h2>Base-31 Pixel Text Encoder/Decoder</h2>
-
-<div>
-  <button onclick="showTab('encodeTab')">Encode</button>
-  <button onclick="showTab('decodeTab')">Decode</button>
-</div>
-
-<!-- ENCODE -->
-<div id="encodeTab" class="tab">
-  <h3>Encode</h3>
-  <label>Text:</label>
-  <input type="text" id="inputText" value="HELLO">
-  
-  <label>Pixel size:</label>
-  <input type="number" id="pixelSizeEncode" value="20" min="1">
-  
-  <label>Colors (comma-separated, max 31):</label>
-  <textarea id="colorListEncode" rows="3">#000000,#FF0000,#00FF00,#0000FF,#FFFF00,#FF00FF,#00FFFF,#888888,#FFFFFF,#800000,#008000,#000080,#808000,#800080,#008080,#C0C0C0,#FFA500,#A52A2A,#008B8B,#B8860B,#B22222,#228B22,#FFD700,#4B0082,#7CFC00,#BA55D3,#CD5C5C,#48D1CC,#C71585,#1E90FF,#696969</textarea>
-  
-  <button onclick="encodeAndDraw()">Encode & Draw</button>
+<div class="panel" id="encodePanel">
+  <h3>Encode Text to Wplace pixels</h3>
+  The intended usecase for this is to add a small identification code near a big artwork, in order to share the image used in blue marble with others who want to help!<br>
+  Black pixels will be added at the end, if the encoded text does not perfectly fill the grid.<br>
+  Due to how hard it is to copy an existing link from Wplace, try to use URL shorteners.<br>
+  Only URL valid tokens can be encoded (others will be removed automatically).<br><br>
+  Here you can enter an input text as well as how big you want the grid to be in height.<br>
+  <br>
+  <label>Text:
+	<input type="text" id="inputText" value="Hello">
+  </label>
+  <br>
+  <label>Grid height: 
+	<input type="number" id="gridHeight" value="1" min="1">
+  </label>
   <br><br>
   <canvas id="canvasEncode"></canvas>
+  <br><br>
+  The button below will download a PNG of the above grid.<br>
+  This allows you to use it with Blue Marble or similar tools to ensure the encoded message can be fixed after griefing.
+  <br>
+  <button id="exportPNG">Export PNG</button>
 </div>
 
-<!-- DECODE -->
-<div id="decodeTab" class="tab" style="display:none">
-  <h3>Decode</h3>
-  <label>Grid width (pixels):</label>
-  <input type="number" id="gridCols" value="8" min="1">
-  
-  <label>Grid height (pixels):</label>
-  <input type="number" id="gridRows" value="8" min="1">
-  
-  <label>Pixel size:</label>
-  <input type="number" id="pixelSizeDecode" value="20" min="1">
-  
-  <label>Colors (comma-separated, max 31):</label>
-  <textarea id="colorListDecode" rows="3">#000000,#FF0000,#00FF00,#0000FF,#FFFF00,#FF00FF,#00FFFF,#888888,#FFFFFF,#800000,#008000,#000080,#808000,#800080,#008080,#C0C0C0,#FFA500,#A52A2A,#008B8B,#B8860B,#B22222,#228B22,#FFD700,#4B0082,#7CFC00,#BA55D3,#CD5C5C,#48D1CC,#C71585,#1E90FF,#696969</textarea>
-  
-  <button onclick="initDecodeCanvas()">Create Drawing Grid</button>
+<div class="panel" id="decodePanel">
+  <h3>Decode Wplace pixels to Text</h3>
+  Use the colors below to paint the grid to match a code you see on Wplace.<br>
+  The text will be decoded in real time as you paint here.<br>
+  You can resize while painting, make sure to match the size of the input pixels exactly, or the decode will fail.<br>
+  <br>
+  <div class="color-palette" id="colorPalette"></div>
+  <label>Grid size: 
+	  <input type="number" id="gridCols" value="9" min="1"> × 
+	  <input type="number" id="gridRows" value="1" min="1">
+  </label>
   <br><br>
   <canvas id="canvasDecode"></canvas>
   <br>
-  <button onclick="decodePixels()">Decode to Text</button>
-  <p>Decoded text: <span id="decodedText"></span></p>
+		<label>
+		  Is Valid Input? 
+		  <input type="checkbox" id="validToggle" disabled/>
+		  <br>
+		  If the above checkbox is not checked, the checksum failed, and something is wrong with the pixel code you input!<br>
+		  This is not 100% reliable but it is better than nothing.
+		</label>
+  <p>Decoded text: 
+	  <br><br>
+	  <span id="decodedText"></span>
+	  <br>
+  </p>
 </div>
 
 <script>
+const PIXEL_SIZE = 32;
+const COLORS_SIZE = 31;
+const COLORS = [
+  "#000000","#3C3C3C","#787878","#d2d2d2","#FFFFFF","#600018",
+  "#ed1c24","#ff7f27","#f6aa09","#f9dd3b","#fffabc","#0eb968","#13e67b","#87ff5e",
+  "#0c816e","#10aea6","#13e1be","#28509e","#4093e4","#60f7f2","#6b50f6",
+  "#99b1fb","#780c99","#aa38b9","#e09ff9","#cb007a","#ec1f80","#f38da9","#684634",
+  "#95682a","#f8b277"
+];
+
+const ALLOWED_CHARS = [
+  ' ', // space
+  'A','B','C','D','E','F','G','H','I','J','K','L','M','N','O','P','Q','R','S','T','U','V','W','X','Y','Z',
+  'a','b','c','d','e','f','g','h','i','j','k','l','m','n','o','p','q','r','s','t','u','v','w','x','y','z',
+  '0','1','2','3','4','5','6','7','8','9',
+  '-', '.', '_', '~', // unreserved
+  ':', '/', '?', '#', '[', ']', '@', // gen-delims
+  '!', '$', '&', "'", '(', ')', '*', '+', ',', ';', '=' // sub-delims
+];
+
+const CHAR_TO_INDEX = {};
+ALLOWED_CHARS.forEach((char, index) => {
+  CHAR_TO_INDEX[char] = index;
+});
+
 let decodeGrid = [];
 let decodeCols = 0;
 let decodeRows = 0;
-let decodeColors = [];
 let currentColorIndex = 0;
 
-function showTab(tabId) {
-    document.getElementById('encodeTab').style.display = 'none';
-    document.getElementById('decodeTab').style.display = 'none';
-    document.getElementById(tabId).style.display = 'block';
+document.getElementById('inputText').addEventListener('input', encodeAndDraw);
+document.getElementById('gridHeight').addEventListener('input', encodeAndDraw);
+document.getElementById('exportPNG').addEventListener('click', exportToPNG);
+
+document.getElementById('gridCols').addEventListener('input', initDecodeCanvas);
+document.getElementById('gridRows').addEventListener('input', initDecodeCanvas);
+
+buildColorPalette();
+encodeAndDraw();
+initDecodeCanvas();
+
+// Build color picker
+function buildColorPalette() {
+    const paletteDiv = document.getElementById('colorPalette');
+    COLORS.forEach((color, idx) => {
+        const swatch = document.createElement('div');
+        swatch.className = 'color-swatch' + (idx === 0 ? ' selected' : '');
+        swatch.style.backgroundColor = color;
+        swatch.onclick = () => {
+            currentColorIndex = idx;
+            document.querySelectorAll('.color-swatch').forEach(el => el.classList.remove('selected'));
+            swatch.classList.add('selected');
+        };
+        paletteDiv.appendChild(swatch);
+    });
 }
 
+function filterInputText(text) {
+    return text.split('').filter(ch => ALLOWED_CHARS.includes(ch)).join('');
+}
+
+function toBase2Indices(text) {
+    return text
+        .split('')
+        .map(ch => CHAR_TO_INDEX[ch])
+        .map(num => num.toString(2).padStart(7, '0'))
+        .join('');
+}
+
+function encodeToBaseX(base2) {
+    const bits = Math.ceil(Math.log2(COLORS_SIZE));
+    const indices = [];
+
+    for (let i = 0; i < base2.length; i += bits) {
+        let chunk = base2.slice(i, i + bits);
+        if (chunk.length < bits) chunk = chunk.padEnd(bits, '0');
+        indices.push(parseInt(chunk, 2));
+    }
+
+    const checksum = (indices.reduce((a, b) => a + b, 0) % (COLORS_SIZE-1)+1);
+    indices.push(checksum);
+
+    return indices;
+}
+
+function renderBaseXToCanvas(indices) {
+    const rows = parseInt(document.getElementById('gridHeight').value);
+    const cols = Math.ceil(indices.length / rows);
+    const canvas = document.getElementById('canvasEncode');
+    const ctx = canvas.getContext('2d');
+
+    canvas.width = cols * PIXEL_SIZE;
+    canvas.height = rows * PIXEL_SIZE;
+
+    // Pad indices to fill grid
+    const paddedIndices = [...indices];
+    while (paddedIndices.length < rows * cols) {
+        paddedIndices.push(0);
+    }
+
+    // Paint scaled pixels
+    let i = 0;
+    for (let y = 0; y < rows; y++) {
+        for (let x = 0; x < cols; x++) {
+            ctx.fillStyle = COLORS[paddedIndices[i]] || COLORS[0];
+            ctx.fillRect(
+                x * PIXEL_SIZE,
+                y * PIXEL_SIZE,
+                PIXEL_SIZE,
+                PIXEL_SIZE
+            );
+            i++;
+        }
+    }
+
+    // Store metadata
+    canvas.dataset.cols = cols;
+    canvas.dataset.rows = rows;
+    canvas.dataset.pixelData = JSON.stringify(paddedIndices);
+}
+
+// ENCODE
 function encodeAndDraw() {
-    let text = document.getElementById('inputText').value;
-    let pixelSize = parseInt(document.getElementById('pixelSizeEncode').value);
-    let colors = document.getElementById('colorListEncode').value.split(',').map(c => c.trim()).slice(0, 31);
-
-    if (colors.length < 2) { alert("Need at least 2 colors"); return; }
-
-    // ASCII to bitstring
-    let bitstring = "";
-    for (let i = 0; i < text.length; i++) {
-        let code = text.charCodeAt(i);
-        if (code > 127) { alert("Non-ASCII detected"); return; }
-        bitstring += code.toString(2).padStart(7, "0");
-    }
-
-    // Bitstring to base-31
-    let pixels = [];
-    let value = bitstring.length ? BigInt("0b" + bitstring) : 0n;
-    while (value > 0n) {
-        pixels.push(Number(value % 31n));
-        value = value / 31n;
-    }
-    if (pixels.length === 0) pixels.push(0);
-    pixels.reverse();
-
-    // Draw
-    let canvas = document.getElementById('canvasEncode');
-    let cols = Math.ceil(Math.sqrt(pixels.length));
-    let rows = Math.ceil(pixels.length / cols);
-    canvas.width = cols * pixelSize;
-    canvas.height = rows * pixelSize;
-    let ctx = canvas.getContext('2d');
-
-    for (let i = 0; i < pixels.length; i++) {
-        ctx.fillStyle = colors[pixels[i]] || "#000000";
-        let x = (i % cols) * pixelSize;
-        let y = Math.floor(i / cols) * pixelSize;
-        ctx.fillRect(x, y, pixelSize, pixelSize);
-    }
+    let text = filterInputText(document.getElementById('inputText').value);
+    document.getElementById('inputText').value = text;
+    let base2Indices = toBase2Indices(text);
+    let baseXData = encodeToBaseX(base2Indices);
+    renderBaseXToCanvas(baseXData);
 }
 
+// DECODE
 function initDecodeCanvas() {
-    decodeCols = parseInt(document.getElementById('gridCols').value);
-    decodeRows = parseInt(document.getElementById('gridRows').value);
-    let pixelSize = parseInt(document.getElementById('pixelSizeDecode').value);
-    decodeColors = document.getElementById('colorListDecode').value.split(',').map(c => c.trim()).slice(0, 31);
-    
-    decodeGrid = Array.from({ length: decodeRows }, () => Array(decodeCols).fill(0));
+    let newCols = parseInt(document.getElementById('gridCols').value);
+    let newRows = parseInt(document.getElementById('gridRows').value);
+    let newGrid = Array.from({ length: newRows }, () => Array(newCols).fill(0));
+
+    // Copy old grid pixels into new grid (preserve existing pixels without shifting)
+    for (let r = 0; r < Math.min(decodeRows, newRows); r++) {
+        for (let c = 0; c < Math.min(decodeCols, newCols); c++) {
+            newGrid[r][c] = decodeGrid[r][c];
+        }
+    }
+
+    decodeCols = newCols;
+    decodeRows = newRows;
+    decodeGrid = newGrid;
 
     let canvas = document.getElementById('canvasDecode');
-    canvas.width = decodeCols * pixelSize;
-    canvas.height = decodeRows * pixelSize;
+    canvas.width = decodeCols * PIXEL_SIZE;
+    canvas.height = decodeRows * PIXEL_SIZE;
     let ctx = canvas.getContext('2d');
+    drawDecodeGrid(ctx);
 
-    drawDecodeGrid(ctx, pixelSize);
     canvas.onclick = (e) => {
         let rect = canvas.getBoundingClientRect();
-        let col = Math.floor((e.clientX - rect.left) / pixelSize);
-        let row = Math.floor((e.clientY - rect.top) / pixelSize);
-        decodeGrid[row][col] = (decodeGrid[row][col] + 1) % decodeColors.length;
-        drawDecodeGrid(ctx, pixelSize);
+        let col = Math.floor((e.clientX - rect.left) / PIXEL_SIZE);
+        let row = Math.floor((e.clientY - rect.top) / PIXEL_SIZE);
+        if (row < decodeRows && col < decodeCols) {
+            decodeGrid[row][col] = currentColorIndex;
+            drawDecodeGrid(ctx);
+            decodePixels();
+        }
     };
 }
 
-function drawDecodeGrid(ctx, pixelSize) {
+function drawDecodeGrid(ctx) {
     for (let r = 0; r < decodeRows; r++) {
         for (let c = 0; c < decodeCols; c++) {
-            ctx.fillStyle = decodeColors[decodeGrid[r][c]];
-            ctx.fillRect(c * pixelSize, r * pixelSize, pixelSize, pixelSize);
+            ctx.fillStyle = COLORS[decodeGrid[r][c]];
+            ctx.fillRect(c * COLORS_SIZE, r * COLORS_SIZE, COLORS_SIZE, COLORS_SIZE);
         }
     }
 }
@@ -153,22 +250,71 @@ function decodePixels() {
             pixels.push(decodeGrid[r][c]);
         }
     }
+	//remove padding trail
+	while (pixels.length && pixels[pixels.length - 1] === 0) {
+		pixels.pop();
+	}
+	
+	let base2 = decodeFromBaseX(pixels);
+	let result = fromBase2Indices(base2);
+	
 
-    // Base-31 to bitstring
-    let value = 0n;
-    for (let p of pixels) {
-        value = value * 31n + BigInt(p);
-    }
-    let bitstring = value.toString(2);
+    document.getElementById('decodedText').textContent = result;
+}
 
-    // Align to 7 bits per char
-    let chars = [];
-    for (let i = 0; i + 7 <= bitstring.length; i += 7) {
-        let code = parseInt(bitstring.slice(i, i + 7), 2);
-        if (code > 0) chars.push(String.fromCharCode(code));
+function decodeFromBaseX(indices) {
+    const bits = Math.ceil(Math.log2(COLORS_SIZE));
+    const checksum = indices.pop();
+
+    // Validate checksum
+    const sum = indices.reduce((a, b) => a + b, 0);
+    const valid = (sum % (COLORS_SIZE - 1) + 1) === checksum;
+    document.getElementById('validToggle').checked = valid;
+
+    // Convert indices back to binary strings, padded to bits
+    let base2 = indices
+        .map(i => i.toString(2).padStart(bits, '0'))
+        .join('');
+
+    // Remove trailing zeros (padding)
+    base2 = base2.replace(/0+$/, '');
+
+    return base2;
+}
+
+function fromBase2Indices(base2) {
+    let output = '';
+    for (let i = 0; i < base2.length; i += 7) {
+        const chunk = base2.slice(i, i + 7);
+        if (chunk.length < 7) break; // Ignore incomplete chunk at end (should not be needed when correct)
+        const index = parseInt(chunk, 2);
+        output += ALLOWED_CHARS[index] ?? '?'; // fallback if index invalid
     }
-    document.getElementById('decodedText').textContent = chars.join('');
+    return output;
+}
+
+function exportToPNG() {
+    const canvas = document.createElement('canvas');
+    const pixels = JSON.parse(document.getElementById('canvasEncode').dataset.pixelData);
+    const cols = parseInt(document.getElementById('canvasEncode').dataset.cols);
+    const rows = parseInt(document.getElementById('canvasEncode').dataset.rows);
+    canvas.width = cols;
+    canvas.height = rows;
+    const ctx = canvas.getContext('2d');
+
+    for (let i = 0; i < pixels.length; i++) {
+        ctx.fillStyle = COLORS[pixels[i]];
+        let x = i % cols;
+        let y = Math.floor(i / cols);
+        ctx.fillRect(x, y, 1, 1);
+    }
+
+    const link = document.createElement('a');
+    link.download = 'encoded.png';
+    link.href = canvas.toDataURL('image/png');
+    link.click();
 }
 </script>
+
 </body>
 </html>
