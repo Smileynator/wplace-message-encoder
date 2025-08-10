@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Base-31 Pixel Text Encoder/Decoder</title>
+<style>
+  body { font-family: sans-serif; padding: 10px; }
+  canvas { border: 1px solid black; image-rendering: pixelated; }
+  textarea, input { width: 100%; box-sizing: border-box; }
+  .tab { margin-bottom: 10px; }
+  button { margin-top: 5px; }
+</style>
+</head>
+<body>
+
+<h2>Base-31 Pixel Text Encoder/Decoder</h2>
+
+<div>
+  <button onclick="showTab('encodeTab')">Encode</button>
+  <button onclick="showTab('decodeTab')">Decode</button>
+</div>
+
+<!-- ENCODE -->
+<div id="encodeTab" class="tab">
+  <h3>Encode</h3>
+  <label>Text:</label>
+  <input type="text" id="inputText" value="HELLO">
+  
+  <label>Pixel size:</label>
+  <input type="number" id="pixelSizeEncode" value="20" min="1">
+  
+  <label>Colors (comma-separated, max 31):</label>
+  <textarea id="colorListEncode" rows="3">#000000,#FF0000,#00FF00,#0000FF,#FFFF00,#FF00FF,#00FFFF,#888888,#FFFFFF,#800000,#008000,#000080,#808000,#800080,#008080,#C0C0C0,#FFA500,#A52A2A,#008B8B,#B8860B,#B22222,#228B22,#FFD700,#4B0082,#7CFC00,#BA55D3,#CD5C5C,#48D1CC,#C71585,#1E90FF,#696969</textarea>
+  
+  <button onclick="encodeAndDraw()">Encode & Draw</button>
+  <br><br>
+  <canvas id="canvasEncode"></canvas>
+</div>
+
+<!-- DECODE -->
+<div id="decodeTab" class="tab" style="display:none">
+  <h3>Decode</h3>
+  <label>Grid width (pixels):</label>
+  <input type="number" id="gridCols" value="8" min="1">
+  
+  <label>Grid height (pixels):</label>
+  <input type="number" id="gridRows" value="8" min="1">
+  
+  <label>Pixel size:</label>
+  <input type="number" id="pixelSizeDecode" value="20" min="1">
+  
+  <label>Colors (comma-separated, max 31):</label>
+  <textarea id="colorListDecode" rows="3">#000000,#FF0000,#00FF00,#0000FF,#FFFF00,#FF00FF,#00FFFF,#888888,#FFFFFF,#800000,#008000,#000080,#808000,#800080,#008080,#C0C0C0,#FFA500,#A52A2A,#008B8B,#B8860B,#B22222,#228B22,#FFD700,#4B0082,#7CFC00,#BA55D3,#CD5C5C,#48D1CC,#C71585,#1E90FF,#696969</textarea>
+  
+  <button onclick="initDecodeCanvas()">Create Drawing Grid</button>
+  <br><br>
+  <canvas id="canvasDecode"></canvas>
+  <br>
+  <button onclick="decodePixels()">Decode to Text</button>
+  <p>Decoded text: <span id="decodedText"></span></p>
+</div>
+
+<script>
+let decodeGrid = [];
+let decodeCols = 0;
+let decodeRows = 0;
+let decodeColors = [];
+let currentColorIndex = 0;
+
+function showTab(tabId) {
+    document.getElementById('encodeTab').style.display = 'none';
+    document.getElementById('decodeTab').style.display = 'none';
+    document.getElementById(tabId).style.display = 'block';
+}
+
+function encodeAndDraw() {
+    let text = document.getElementById('inputText').value;
+    let pixelSize = parseInt(document.getElementById('pixelSizeEncode').value);
+    let colors = document.getElementById('colorListEncode').value.split(',').map(c => c.trim()).slice(0, 31);
+
+    if (colors.length < 2) { alert("Need at least 2 colors"); return; }
+
+    // ASCII to bitstring
+    let bitstring = "";
+    for (let i = 0; i < text.length; i++) {
+        let code = text.charCodeAt(i);
+        if (code > 127) { alert("Non-ASCII detected"); return; }
+        bitstring += code.toString(2).padStart(7, "0");
+    }
+
+    // Bitstring to base-31
+    let pixels = [];
+    let value = bitstring.length ? BigInt("0b" + bitstring) : 0n;
+    while (value > 0n) {
+        pixels.push(Number(value % 31n));
+        value = value / 31n;
+    }
+    if (pixels.length === 0) pixels.push(0);
+    pixels.reverse();
+
+    // Draw
+    let canvas = document.getElementById('canvasEncode');
+    let cols = Math.ceil(Math.sqrt(pixels.length));
+    let rows = Math.ceil(pixels.length / cols);
+    canvas.width = cols * pixelSize;
+    canvas.height = rows * pixelSize;
+    let ctx = canvas.getContext('2d');
+
+    for (let i = 0; i < pixels.length; i++) {
+        ctx.fillStyle = colors[pixels[i]] || "#000000";
+        let x = (i % cols) * pixelSize;
+        let y = Math.floor(i / cols) * pixelSize;
+        ctx.fillRect(x, y, pixelSize, pixelSize);
+    }
+}
+
+function initDecodeCanvas() {
+    decodeCols = parseInt(document.getElementById('gridCols').value);
+    decodeRows = parseInt(document.getElementById('gridRows').value);
+    let pixelSize = parseInt(document.getElementById('pixelSizeDecode').value);
+    decodeColors = document.getElementById('colorListDecode').value.split(',').map(c => c.trim()).slice(0, 31);
+    
+    decodeGrid = Array.from({ length: decodeRows }, () => Array(decodeCols).fill(0));
+
+    let canvas = document.getElementById('canvasDecode');
+    canvas.width = decodeCols * pixelSize;
+    canvas.height = decodeRows * pixelSize;
+    let ctx = canvas.getContext('2d');
+
+    drawDecodeGrid(ctx, pixelSize);
+    canvas.onclick = (e) => {
+        let rect = canvas.getBoundingClientRect();
+        let col = Math.floor((e.clientX - rect.left) / pixelSize);
+        let row = Math.floor((e.clientY - rect.top) / pixelSize);
+        decodeGrid[row][col] = (decodeGrid[row][col] + 1) % decodeColors.length;
+        drawDecodeGrid(ctx, pixelSize);
+    };
+}
+
+function drawDecodeGrid(ctx, pixelSize) {
+    for (let r = 0; r < decodeRows; r++) {
+        for (let c = 0; c < decodeCols; c++) {
+            ctx.fillStyle = decodeColors[decodeGrid[r][c]];
+            ctx.fillRect(c * pixelSize, r * pixelSize, pixelSize, pixelSize);
+        }
+    }
+}
+
+function decodePixels() {
+    let pixels = [];
+    for (let r = 0; r < decodeRows; r++) {
+        for (let c = 0; c < decodeCols; c++) {
+            pixels.push(decodeGrid[r][c]);
+        }
+    }
+
+    // Base-31 to bitstring
+    let value = 0n;
+    for (let p of pixels) {
+        value = value * 31n + BigInt(p);
+    }
+    let bitstring = value.toString(2);
+
+    // Align to 7 bits per char
+    let chars = [];
+    for (let i = 0; i + 7 <= bitstring.length; i += 7) {
+        let code = parseInt(bitstring.slice(i, i + 7), 2);
+        if (code > 0) chars.push(String.fromCharCode(code));
+    }
+    document.getElementById('decodedText').textContent = chars.join('');
+}
+</script>
+</body>
+</html>
